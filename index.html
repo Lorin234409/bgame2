@@ -62,12 +62,6 @@
             .touch-feedback {
                 @apply absolute bg-white/30 rounded-full transform -translate-x-1/2 -translate-y-1/2 pointer-events-none;
             }
-            .sound-wave {
-                @apply absolute w-12 h-12 bg-radial-gradient-white-transparent rounded-full opacity-0 animate-sound-wave;
-            }
-            @keyframes sound-wave {
-                to { transform: scale(3); opacity: 0; }
-            }
         }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -129,6 +123,7 @@
             const difficultyIndicator = document.getElementById('difficultyIndicator');
             const soundControl = document.getElementById('soundControl');
             const touchFeedback = document.getElementById('touchFeedback');
+            const startButton = document.getElementById('startButton');
             
             const bgMusic = document.getElementById('bgMusic');
             const jumpSound = document.getElementById('jumpSound');
@@ -182,6 +177,8 @@
                 isJumping: false,
                 
                 jump() {
+                    if (!gameStarted || gameOver) return;
+                    
                     this.velocity = this.jumpStrength;
                     this.rotation = -20;
                     this.wingPosition = 0;
@@ -604,12 +601,9 @@
                 }
             }
             
-            // 播放音效函数（带播放限制处理和可视化）
+            // 播放音效函数（带播放限制处理）
             function playSound(audio, volume = 1) {
                 if (!soundEnabled) return;
-                
-                // 创建音效可视化波纹
-                createSoundWave();
                 
                 // 处理自动播放限制
                 if (audio.paused) {
@@ -624,19 +618,6 @@
                         }, { once: true });
                     });
                 }
-            }
-            
-            // 创建音效可视化波纹
-            function createSoundWave() {
-                const wave = document.createElement('div');
-                wave.className = 'sound-wave';
-                wave.style.left = `${canvas.offsetLeft + canvas.width/2}px`;
-                wave.style.top = `${canvas.offsetTop + canvas.height/2}px`;
-                document.body.appendChild(wave);
-                
-                setTimeout(() => {
-                    wave.remove();
-                }, 1000);
             }
             
             // 启动背景音（处理自动播放策略）
@@ -718,8 +699,8 @@
                 }, 10);
             }
             
-            // 初始化事件监听
-            function initEventListeners() {
+            // 初始化游戏
+            function initGame() {
                 // 鼠标点击事件
                 canvas.addEventListener('click', handleClick);
                 
@@ -730,31 +711,27 @@
                 });
                 
                 // 键盘事件
-                document.addEventListener('keydown', handleKeydown);
+                document.addEventListener('keydown', (e) => {
+                    if (e.code === 'Space') {
+                        e.preventDefault();
+                        handleClick(e);
+                    }
+                });
                 
                 // 声音控制按钮
                 soundControl.addEventListener('click', toggleSound);
-            }
-            
-            function handleKeydown(e) {
-                if (e.code === 'Space') {
-                    e.preventDefault();
-                    if (gameStarted && gameOver) {
-                        startGame();
-                    } else if (gameStarted && !gameOver) {
-                        bird.jump();
-                    } else if (!gameStarted) {
-                        startGame();
-                    }
-                }
+                
+                // 开始按钮点击事件
+                startButton.addEventListener('click', startGame);
+                
+                // 确保图片加载完成
+                skyImage.onload = function() {
+                    // 图片加载完成后可以开始游戏
+                };
             }
             
             // 初始化游戏
-            initEventListeners();
-            
-            skyImage.onload = function() {
-                // 图片加载完成后可以开始游戏
-            };
+            initGame();
         });
     </script>
 </body>
