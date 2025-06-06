@@ -59,6 +59,15 @@
             .sound-control {
                 @apply absolute top-4 right-40 bg-dark/70 text-white px-3 py-2 rounded-lg text-lg z-10 cursor-pointer transition-all duration-300 hover:bg-dark/90;
             }
+            .touch-feedback {
+                @apply absolute bg-white/30 rounded-full transform -translate-x-1/2 -translate-y-1/2 pointer-events-none;
+            }
+            .sound-wave {
+                @apply absolute w-12 h-12 bg-radial-gradient-white-transparent rounded-full opacity-0 animate-sound-wave;
+            }
+            @keyframes sound-wave {
+                to { transform: scale(3); opacity: 0; }
+            }
         }
     </style>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -67,7 +76,7 @@
     <h1 id="gameTitle" class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold text-white mb-6 text-center transition-all duration-500">飞翔的小鸟</h1>
     
     <div id="gameContainer" class="game-container game-container-start">
-        <canvas id="gameCanvas" class="w-full"></canvas>
+        <canvas id="gameCanvas" class="w-full" touch-action="none"></canvas>
         
         <div class="game-score" id="scoreDisplay">分数: 0</div>
         <div id="difficultyIndicator" class="difficulty-indicator">难度: 1</div>
@@ -77,7 +86,7 @@
         
         <div class="game-start-screen" id="startScreen">
             <h2 class="text-2xl font-bold text-white mb-8">飞翔的小鸟</h2>
-            <p class="text-white mb-8 text-center px-6">连续点击屏幕或按空格键让小鸟保持高度，避开松树！<br>每获得10分难度提升一级</p>
+            <p class="text-white mb-8 text-center px-6">点击屏幕或按空格键让小鸟保持高度，避开松树！<br>每获得10分难度提升一级</p>
             <button id="startButton" class="btn-game">
                 <i class="fa fa-play mr-2"></i>开始游戏
             </button>
@@ -85,8 +94,11 @@
     </div>
     
     <div id="gameHint" class="mt-6 text-white text-center transition-all duration-500">
-        <p>提示: 连续点击或按空格键让小鸟保持飞行</p>
+        <p>提示: 点击或按空格键让小鸟保持飞行</p>
     </div>
+
+    <!-- 触摸反馈元素 -->
+    <div id="touchFeedback" class="touch-feedback hidden"></div>
 
     <!-- 音频资源 -->
     <audio id="bgMusic" loop>
@@ -101,6 +113,9 @@
     <audio id="scoreSound">
         <source src="https://assets.mixkit.co/active_storage/sfx/2163/2163-preview.mp3" type="audio/mpeg">
     </audio>
+    <audio id="hitPipeSound">
+        <source src="https://assets.mixkit.co/active_storage/sfx/2960/2960-preview.mp3" type="audio/mpeg">
+    </audio>
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -113,14 +128,18 @@
             const gameHint = document.getElementById('gameHint');
             const difficultyIndicator = document.getElementById('difficultyIndicator');
             const soundControl = document.getElementById('soundControl');
+            const touchFeedback = document.getElementById('touchFeedback');
             
             const bgMusic = document.getElementById('bgMusic');
             const jumpSound = document.getElementById('jumpSound');
             const collisionSound = document.getElementById('collisionSound');
             const scoreSound = document.getElementById('scoreSound');
+            const hitPipeSound = document.getElementById('hitPipeSound');
             
             let soundEnabled = true;
+            let bgMusicStarted = false;
             
+            // 调整Canvas尺寸
             function resizeCanvas() {
                 const containerWidth = gameContainer.clientWidth;
                 canvas.width = containerWidth;
@@ -130,6 +149,7 @@
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
             
+            // 游戏状态变量
             let gameStarted = false;
             let gameOver = false;
             let score = 0;
@@ -140,10 +160,11 @@
             let backgroundOffset = 0;
             let scorePopup = null;
             
+            // 背景图片
             const skyImage = new Image();
             skyImage.src = 'https://picsum.photos/id/1015/800/600';
             
-            // 小鸟对象 - 修复版
+            // 小鸟对象
             const bird = {
                 x: 50,
                 y: 100,
@@ -166,10 +187,8 @@
                     this.wingPosition = 0;
                     this.isJumping = true;
                     
-                    if (soundEnabled) {
-                        jumpSound.currentTime = 0;
-                        jumpSound.play().catch(err => console.log("播放音效失败:", err));
-                    }
+                    // 播放跳跃音效
+                    playSound(jumpSound, 0.5);
                     
                     setTimeout(() => {
                         this.isJumping = false;
@@ -210,7 +229,7 @@
                     ctx.arc(0, 0, this.width/2, 0, Math.PI * 2);
                     ctx.fill();
                     
-                    // 绘制眼睛 - 修复位置
+                    // 绘制眼睛
                     ctx.fillStyle = 'white';
                     ctx.beginPath();
                     ctx.arc(this.width * 0.3, -5, 3.25, 0, Math.PI * 2);
@@ -224,7 +243,7 @@
                     // 绘制嘴巴
                     ctx.fillStyle = '#ED8936';
                     ctx.beginPath();
-                    ctx.moveTo(this.width/2 - 2, 0); // 调整起始点
+                    ctx.moveTo(this.width/2 - 2, 0);
                     ctx.lineTo(this.width/2 + 6.5, -3.25);
                     ctx.lineTo(this.width/2 + 6.5, 3.25);
                     ctx.closePath();
@@ -246,11 +265,13 @@
                 }
             };
             
+            // 管道参数
             const treeWidth = 60;
             const baseTreeGap = 150;
             const baseTreeSpeed = 2.1;
             const baseTreeDistance = 350;
             
+            // 生成管道
             function generateTree() {
                 const minHeight = canvas.height * 0.15;
                 const maxHeight = canvas.height * 0.6;
@@ -277,6 +298,7 @@
                 });
             }
             
+            // 更新管道位置
             function updateTrees() {
                 const currentSpeed = baseTreeSpeed * (1 + (difficultyLevel - 1) * 0.15);
                 backgroundOffset = (backgroundOffset + currentSpeed * 0.3) % canvas.width;
@@ -312,16 +334,15 @@
                             vy: -2
                         };
                         
-                        if (soundEnabled) {
-                            scoreSound.currentTime = 0;
-                            scoreSound.play().catch(err => console.log("播放音效失败:", err));
-                        }
+                        // 播放得分音效
+                        playSound(scoreSound, 0.6);
                         
                         updateDifficulty();
                     }
                 }
             }
             
+            // 更新游戏难度
             function updateDifficulty() {
                 const newLevel = Math.min(Math.floor(score / 10) + 1, MAX_DIFFICULTY);
                 
@@ -334,6 +355,9 @@
                     
                     scoreDisplay.textContent = `分数: ${score} (难度提升到 ${difficultyLevel}!)`;
                     
+                    // 播放难度提升音效
+                    playSound(scoreSound, 0.6);
+                    
                     setTimeout(() => {
                         scoreDisplay.textContent = `分数: ${score}`;
                         difficultyIndicator.classList.add('opacity-0');
@@ -341,6 +365,7 @@
                 }
             }
             
+            // 绘制管道
             function drawTrees() {
                 for (let i = 0; i < trees.length; i++) {
                     const tree = trees[i];
@@ -380,14 +405,12 @@
                 }
             }
             
-            // 修复碰撞检测逻辑
+            // 碰撞检测
             function checkCollision() {
                 // 检测底部碰撞
                 if (bird.y + bird.height > canvas.height) {
-                    if (soundEnabled) {
-                        collisionSound.currentTime = 0;
-                        collisionSound.play().catch(err => console.log("播放音效失败:", err));
-                    }
+                    // 播放落地碰撞音效
+                    playSound(collisionSound, 0.8);
                     return true;
                 }
                 
@@ -395,14 +418,12 @@
                 for (let i = 0; i < trees.length; i++) {
                     const tree = trees[i];
                     
-                    // 简化的碰撞检测（使用矩形边界）
+                    // 简化的碰撞检测
                     if (bird.x + bird.width > tree.x && 
                         bird.x < tree.x + tree.width && 
                         (bird.y < tree.topHeight || bird.y + bird.height > tree.bottomY)) {
-                        if (soundEnabled) {
-                            collisionSound.currentTime = 0;
-                            collisionSound.play().catch(err => console.log("播放音效失败:", err));
-                        }
+                        // 播放管道碰撞音效
+                        playSound(hitPipeSound, 0.7);
                         return true;
                     }
                 }
@@ -410,6 +431,7 @@
                 return false;
             }
             
+            // 绘制背景
             function drawBackground() {
                 if (skyImage.complete) {
                     const scale = Math.max(canvas.width / skyImage.width, canvas.height / skyImage.height);
@@ -450,6 +472,7 @@
                 });
             }
             
+            // 绘制得分弹出动画
             function drawScorePopup() {
                 if (scorePopup) {
                     ctx.fillStyle = `rgba(255, 255, 255, ${scorePopup.opacity})`;
@@ -466,6 +489,7 @@
                 }
             }
             
+            // 绘制游戏结束画面
             function drawGameOverScreen() {
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -485,6 +509,7 @@
                 ctx.fillText('点击开始游戏', canvas.width / 2, canvas.height / 2 + 100);
             }
             
+            // 游戏开始动画
             function gameStartAnimation() {
                 const startOpacity = 1;
                 let opacity = startOpacity;
@@ -504,6 +529,7 @@
                 animate();
             }
             
+            // 游戏主循环
             function gameLoop() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 
@@ -517,6 +543,7 @@
                         gameOver = true;
                         cancelAnimationFrame(animationId);
                         
+                        // 游戏结束时暂停背景音
                         bgMusic.pause();
                         
                         gameTitle.classList.remove('opacity-0', 'scale-95');
@@ -544,6 +571,7 @@
                 }
             }
             
+            // 开始游戏
             function startGame() {
                 gameStarted = true;
                 gameOver = false;
@@ -570,27 +598,81 @@
                 gameLoop();
                 gameStartAnimation();
                 
-                if (soundEnabled) {
-                    bgMusic.currentTime = 0;
-                    bgMusic.play().catch(err => {
-                        console.log("自动播放音乐失败，需要用户交互:", err);
-                        document.addEventListener('click', function startMusicAfterClick() {
-                            if (soundEnabled) {
-                                bgMusic.play().catch(e => console.log("仍无法播放音乐:", e));
-                            }
-                            document.removeEventListener('click', startMusicAfterClick);
+                // 开始游戏时播放背景音
+                if (soundEnabled && !bgMusicStarted) {
+                    startBackgroundMusic();
+                }
+            }
+            
+            // 播放音效函数（带播放限制处理和可视化）
+            function playSound(audio, volume = 1) {
+                if (!soundEnabled) return;
+                
+                // 创建音效可视化波纹
+                createSoundWave();
+                
+                // 处理自动播放限制
+                if (audio.paused) {
+                    audio.volume = volume;
+                    audio.currentTime = 0;
+                    audio.play().catch(err => {
+                        console.log("播放音效失败:", err);
+                        // 尝试通过用户交互触发
+                        document.addEventListener('click', function initSound() {
+                            audio.play().catch(e => console.log("仍无法播放:", e));
+                            document.removeEventListener('click', initSound);
                         }, { once: true });
                     });
                 }
             }
             
+            // 创建音效可视化波纹
+            function createSoundWave() {
+                const wave = document.createElement('div');
+                wave.className = 'sound-wave';
+                wave.style.left = `${canvas.offsetLeft + canvas.width/2}px`;
+                wave.style.top = `${canvas.offsetTop + canvas.height/2}px`;
+                document.body.appendChild(wave);
+                
+                setTimeout(() => {
+                    wave.remove();
+                }, 1000);
+            }
+            
+            // 启动背景音（处理自动播放策略）
+            function startBackgroundMusic() {
+                if (!soundEnabled) return;
+                
+                bgMusic.volume = 0.3;
+                bgMusic.play().catch(err => {
+                    console.log("背景音自动播放失败:", err);
+                    bgMusicStarted = false;
+                    
+                    // 设置用户交互触发
+                    document.addEventListener('click', function enableBgMusic() {
+                        if (soundEnabled && !bgMusicStarted) {
+                            bgMusic.play().catch(e => console.log("仍无法播放背景音:", e));
+                            bgMusicStarted = true;
+                        }
+                        document.removeEventListener('click', enableBgMusic);
+                    }, { once: true });
+                }).then(() => {
+                    bgMusicStarted = true;
+                });
+            }
+            
+            // 切换音效开关
             function toggleSound() {
                 soundEnabled = !soundEnabled;
                 
                 if (soundEnabled) {
                     soundControl.innerHTML = '<i class="fa fa-volume-up"></i>';
                     if (gameStarted && !gameOver) {
-                        bgMusic.play().catch(err => console.log("播放音乐失败:", err));
+                        if (!bgMusicStarted) {
+                            startBackgroundMusic();
+                        } else {
+                            bgMusic.play();
+                        }
                     }
                 } else {
                     soundControl.innerHTML = '<i class="fa fa-volume-off"></i>';
@@ -598,7 +680,14 @@
                 }
             }
             
+            // 处理点击/触摸事件
             function handleClick(e) {
+                // 获取实际的点击位置（兼容鼠标和触摸）
+                const event = e.touches ? e.touches[0] : e;
+                
+                // 显示触摸反馈
+                showTouchFeedback(event.clientX, event.clientY);
+                
                 if (gameStarted && gameOver) {
                     startGame();
                 } else if (gameStarted && !gameOver) {
@@ -606,6 +695,45 @@
                 } else if (!gameStarted) {
                     startGame();
                 }
+            }
+            
+            // 显示触摸反馈动画
+            function showTouchFeedback(x, y) {
+                touchFeedback.style.left = `${x}px`;
+                touchFeedback.style.top = `${y}px`;
+                touchFeedback.style.width = '60px';
+                touchFeedback.style.height = '60px';
+                touchFeedback.style.opacity = '0.7';
+                touchFeedback.classList.remove('hidden');
+                
+                // 动画效果
+                setTimeout(() => {
+                    touchFeedback.style.width = '100px';
+                    touchFeedback.style.height = '100px';
+                    touchFeedback.style.opacity = '0';
+                    
+                    setTimeout(() => {
+                        touchFeedback.classList.add('hidden');
+                    }, 300);
+                }, 10);
+            }
+            
+            // 初始化事件监听
+            function initEventListeners() {
+                // 鼠标点击事件
+                canvas.addEventListener('click', handleClick);
+                
+                // 触摸事件支持
+                canvas.addEventListener('touchstart', (e) => {
+                    e.preventDefault(); // 防止默认行为（如页面滚动）
+                    handleClick(e);
+                });
+                
+                // 键盘事件
+                document.addEventListener('keydown', handleKeydown);
+                
+                // 声音控制按钮
+                soundControl.addEventListener('click', toggleSound);
             }
             
             function handleKeydown(e) {
@@ -621,20 +749,14 @@
                 }
             }
             
-            canvas.addEventListener('click', handleClick);
-            document.addEventListener('keydown', handleKeydown);
-            document.getElementById('startButton').addEventListener('click', startGame);
-            soundControl.addEventListener('click', toggleSound);
+            // 初始化游戏
+            initEventListeners();
             
             skyImage.onload = function() {
                 // 图片加载完成后可以开始游戏
             };
-            
-            bgMusic.volume = 0.3;
-            jumpSound.volume = 0.5;
-            collisionSound.volume = 0.6;
-            scoreSound.volume = 0.4;
         });
     </script>
 </body>
-</html>    
+</html>
+    
