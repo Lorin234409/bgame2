@@ -661,25 +661,13 @@
                 }
             }
             
-            // 处理点击/触摸事件
-            function handleClick(e) {
-                // 获取实际的点击位置（兼容鼠标和触摸）
-                const event = e.touches ? e.touches[0] : e;
-                
-                // 显示触摸反馈
-                showTouchFeedback(event.clientX, event.clientY);
-                
-                if (gameStarted && gameOver) {
-                    startGame();
-                } else if (gameStarted && !gameOver) {
-                    bird.jump();
-                } else if (!gameStarted) {
-                    startGame();
-                }
-            }
-            
             // 显示触摸反馈动画
             function showTouchFeedback(x, y) {
+                // 将页面坐标转换为Canvas坐标
+                const rect = canvas.getBoundingClientRect();
+                const canvasX = x - rect.left;
+                const canvasY = y - rect.top;
+                
                 touchFeedback.style.left = `${x}px`;
                 touchFeedback.style.top = `${y}px`;
                 touchFeedback.style.width = '60px';
@@ -701,27 +689,54 @@
             
             // 初始化游戏
             function initGame() {
-                // 鼠标点击事件
-                canvas.addEventListener('click', handleClick);
+                // **关键修复：统一处理鼠标和触摸事件**
+                function handleCanvasInteraction(e) {
+                    e.preventDefault();
+                    
+                    // 获取事件位置
+                    const rect = canvas.getBoundingClientRect();
+                    let x, y;
+                    
+                    if (e.touches) {
+                        // 触摸事件
+                        x = e.touches[0].clientX - rect.left;
+                        y = e.touches[0].clientY - rect.top;
+                    } else {
+                        // 鼠标事件
+                        x = e.clientX - rect.left;
+                        y = e.clientY - rect.top;
+                    }
+                    
+                    // 显示触摸反馈（在页面坐标上）
+                    showTouchFeedback(e.clientX, e.clientY);
+                    
+                    // 根据游戏状态处理点击
+                    if (gameStarted && gameOver) {
+                        startGame();
+                    } else if (gameStarted && !gameOver) {
+                        bird.jump();
+                    } else if (!gameStarted) {
+                        startGame();
+                    }
+                }
                 
-                // 触摸事件支持
-                canvas.addEventListener('touchstart', (e) => {
-                    e.preventDefault(); // 防止默认行为（如页面滚动）
-                    handleClick(e);
-                });
+                // 绑定鼠标和触摸事件
+                canvas.addEventListener('mousedown', handleCanvasInteraction);
+                canvas.addEventListener('touchstart', handleCanvasInteraction, { passive: false });
                 
                 // 键盘事件
                 document.addEventListener('keydown', (e) => {
                     if (e.code === 'Space') {
                         e.preventDefault();
-                        handleClick(e);
+                        handleCanvasInteraction({
+                            clientX: canvas.getBoundingClientRect().left + canvas.width/2,
+                            clientY: canvas.getBoundingClientRect().top + canvas.height/2
+                        });
                     }
                 });
                 
                 // 声音控制按钮
                 soundControl.addEventListener('click', toggleSound);
-                
-                // 开始按钮点击事件
                 startButton.addEventListener('click', startGame);
                 
                 // 确保图片加载完成
