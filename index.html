@@ -11,11 +11,11 @@
             theme: {
                 extend: {
                     colors: {
-                        primary: '#E53E3E',    // 红色主色调
-                        secondary: '#48BB78',  // 绿色松树
-                        accent: '#ED8936',     // 橙色点缀
-                        dark: '#1A202C',       // 深色文本
-                        light: '#F7FAFC',      // 浅色背景
+                        primary: '#E53E3E',
+                        secondary: '#48BB78',
+                        accent: '#ED8936',
+                        dark: '#1A202C',
+                        light: '#F7FAFC',
                     },
                     fontFamily: {
                         game: ['"Press Start 2P"', 'cursive', 'sans-serif'],
@@ -36,11 +36,11 @@
                 @apply bg-blue-500/80;
             }
             .game-container-playing {
-                @apply bg-blue-500; /* 变亮20% */
+                @apply bg-blue-500;
             }
             .game-score {
                 @apply absolute top-4 left-4 bg-dark/70 text-white px-4 py-2 rounded-lg text-lg font-bold z-10 transition-all duration-500;
-                pointer-events: none; /* 允许事件穿透 */
+                pointer-events: none;
             }
             .game-start-screen {
                 @apply absolute inset-0 bg-dark/80 flex flex-col items-center justify-center z-20 transition-opacity duration-500;
@@ -51,12 +51,9 @@
             .btn-game {
                 @apply bg-primary hover:bg-primary/90 text-white font-bold py-3 px-8 rounded-lg shadow-lg transform transition-all duration-300 hover:scale-105 focus:outline-none;
             }
-            .btn-game-secondary {
-                @apply bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg shadow-md transform transition-all duration-300 hover:scale-105 focus:outline-none;
-            }
             .difficulty-indicator {
                 @apply absolute top-4 right-4 bg-accent/80 text-white px-4 py-2 rounded-lg text-lg font-bold z-10 opacity-0 transition-opacity duration-500;
-                pointer-events: none; /* 允许事件穿透 */
+                pointer-events: none;
             }
             .sound-control {
                 @apply absolute top-4 right-40 bg-dark/70 text-white px-3 py-2 rounded-lg text-lg z-10 cursor-pointer transition-all duration-300 hover:bg-dark/90;
@@ -67,8 +64,11 @@
             .game-canvas-container {
                 @apply relative w-full h-full;
             }
-            .game-canvas-container > *:not(canvas) {
-                @apply pointer-events-none; /* 允许事件穿透 */
+            .virtual-btn {
+                @apply absolute bottom-8 w-24 h-24 bg-primary/30 rounded-full flex items-center justify-center text-white font-bold;
+            }
+            #jumpBtn {
+                @apply right-8;
             }
         }
     </style>
@@ -101,142 +101,202 @@
         <p>提示: 点击或按空格键让小鸟保持飞行</p>
     </div>
 
+    <!-- 移动端虚拟按钮 -->
+    <div class="mobile-controls md:hidden">
+        <button id="jumpBtn" class="virtual-btn">跳跃</button>
+    </div>
+
     <!-- 触摸反馈元素 -->
     <div id="touchFeedback" class="touch-feedback hidden"></div>
 
     <!-- 音频资源 -->
-    <audio id="bgMusic" loop>
+    <audio id="bgMusic" loop preload="auto">
         <source src="https://assets.mixkit.co/active_storage/sfx/2645/2645-preview.mp3" type="audio/mpeg">
     </audio>
-    <audio id="jumpSound">
+    <audio id="jumpSound" preload="auto">
         <source src="https://assets.mixkit.co/active_storage/sfx/2706/2706-preview.mp3" type="audio/mpeg">
     </audio>
-    <audio id="collisionSound">
+    <audio id="collisionSound" preload="auto">
         <source src="https://assets.mixkit.co/active_storage/sfx/3077/3077-preview.mp3" type="audio/mpeg">
     </audio>
-    <audio id="scoreSound">
+    <audio id="scoreSound" preload="auto">
         <source src="https://assets.mixkit.co/active_storage/sfx/2163/2163-preview.mp3" type="audio/mpeg">
     </audio>
-    <audio id="hitPipeSound">
+    <audio id="hitPipeSound" preload="auto">
         <source src="https://assets.mixkit.co/active_storage/sfx/2960/2960-preview.mp3" type="audio/mpeg">
     </audio>
 
     <script>
+        // 游戏配置常量
+        const CONFIG = {
+            DIFFICULTY: {
+                MAX_LEVEL: 5,
+                SCORE_PER_LEVEL: 10,
+                SPEED_MULTIPLIER: 0.15,
+                GRAVITY_MULTIPLIER: 0.2
+            },
+            BIRD: {
+                WIDTH: 26,
+                HEIGHT: 19.5,
+                GRAVITY: 0.35,
+                JUMP_STRENGTH: -8,
+                MAX_ROTATION: 25
+            },
+            TREE: {
+                WIDTH: 60,
+                BASE_GAP: 150,
+                BASE_SPEED: 2.1,
+                BASE_DISTANCE: 350,
+                MIN_HEIGHT_PERCENT: 0.15,
+                MAX_HEIGHT_PERCENT: 0.6
+            },
+            AUDIO: {
+                BG_VOLUME: 0.3,
+                JUMP_VOLUME: 0.5,
+                SCORE_VOLUME: 0.6,
+                HIT_VOLUME: 0.7,
+                COLLISION_VOLUME: 0.8
+            }
+        };
+
+        // 游戏状态枚举
+        const GameState = {
+            MENU: 0,
+            PLAYING: 1,
+            GAME_OVER: 2
+        };
+
         document.addEventListener('DOMContentLoaded', () => {
+            // DOM元素引用
             const canvas = document.getElementById('gameCanvas');
             const ctx = canvas.getContext('2d');
-            const startScreen = document.getElementById('startScreen');
-            const scoreDisplay = document.getElementById('scoreDisplay');
-            const gameContainer = document.getElementById('gameContainer');
-            const gameTitle = document.getElementById('gameTitle');
-            const gameHint = document.getElementById('gameHint');
-            const difficultyIndicator = document.getElementById('difficultyIndicator');
-            const soundControl = document.getElementById('soundControl');
-            const touchFeedback = document.getElementById('touchFeedback');
-            const startButton = document.getElementById('startButton');
-            
-            const bgMusic = document.getElementById('bgMusic');
-            const jumpSound = document.getElementById('jumpSound');
-            const collisionSound = document.getElementById('collisionSound');
-            const scoreSound = document.getElementById('scoreSound');
-            const hitPipeSound = document.getElementById('hitPipeSound');
-            
-            let soundEnabled = true;
-            let bgMusicStarted = false;
-            
+            const elements = {
+                startScreen: document.getElementById('startScreen'),
+                scoreDisplay: document.getElementById('scoreDisplay'),
+                gameContainer: document.getElementById('gameContainer'),
+                gameTitle: document.getElementById('gameTitle'),
+                gameHint: document.getElementById('gameHint'),
+                difficultyIndicator: document.getElementById('difficultyIndicator'),
+                soundControl: document.getElementById('soundControl'),
+                touchFeedback: document.getElementById('touchFeedback'),
+                startButton: document.getElementById('startButton'),
+                jumpBtn: document.getElementById('jumpBtn')
+            };
+
+            // 音频元素引用
+            const audio = {
+                bgMusic: document.getElementById('bgMusic'),
+                jumpSound: document.getElementById('jumpSound'),
+                collisionSound: document.getElementById('collisionSound'),
+                scoreSound: document.getElementById('scoreSound'),
+                hitPipeSound: document.getElementById('hitPipeSound')
+            };
+
+            // 游戏状态变量
+            let state = {
+                current: GameState.MENU,
+                score: 0,
+                highScore: localStorage.getItem('flappyHighScore') || 0,
+                difficultyLevel: 1,
+                animationId: null,
+                lastTime: 0,
+                soundEnabled: true,
+                bgMusicStarted: false,
+                lastClickTime: 0
+            };
+
+            // 游戏对象
+            const gameObjects = {
+                bird: null,
+                trees: [],
+                backgroundOffset: 0,
+                scorePopup: null,
+                particles: []
+            };
+
             // 调整Canvas尺寸
             function resizeCanvas() {
-                const containerWidth = gameContainer.clientWidth;
+                const containerWidth = elements.gameContainer.clientWidth;
                 canvas.width = containerWidth;
-                canvas.height = containerWidth * 0.75; // 4:3 比例
+                canvas.height = containerWidth * 0.75;
+                canvas.style.willChange = 'transform';
+                ctx.imageSmoothingEnabled = false;
             }
-            
-            resizeCanvas();
-            window.addEventListener('resize', resizeCanvas);
-            
-            // 游戏状态变量
-            let gameStarted = false;
-            let gameOver = true; // 初始状态为游戏未开始
-            let score = 0;
-            let animationId = null;
-            let difficultyLevel = 1;
-            const MAX_DIFFICULTY = 5;
-            let trees = [];
-            let backgroundOffset = 0;
-            let scorePopup = null;
-            
-            // 背景图片
-            const skyImage = new Image();
-            skyImage.src = 'https://picsum.photos/id/1015/800/600';
-            
-            // 小鸟对象
-            const bird = {
-                x: 50,
-                y: 100,
-                width: 26,  // 原40 * 0.65
-                height: 19.5,  // 原30 * 0.65
-                velocity: 0,
-                baseGravity: 0.35,
-                get gravity() { return this.baseGravity * (1 + (difficultyLevel - 1) * 0.2); },
-                jumpStrength: -8,
-                color: '#E53E3E',
-                rotation: 0,
-                maxRotation: 25,
-                wingPosition: 0,
-                wingSpeed: 0.1,
-                isJumping: false,
-                
+
+            // 小鸟类
+            class Bird {
+                constructor() {
+                    this.reset();
+                }
+
+                reset() {
+                    this.x = 50;
+                    this.y = canvas.height / 2;
+                    this.width = CONFIG.BIRD.WIDTH;
+                    this.height = CONFIG.BIRD.HEIGHT;
+                    this.velocity = 0;
+                    this.rotation = 0;
+                    this.wingPosition = 0;
+                    this.isJumping = false;
+                }
+
+                get gravity() {
+                    return CONFIG.BIRD.GRAVITY * (1 + (state.difficultyLevel - 1) * CONFIG.DIFFICULTY.GRAVITY_MULTIPLIER);
+                }
+
                 jump() {
-                    if (!gameStarted || gameOver) return; // 严格限制只有游戏进行中才能跳跃
+                    if (state.current !== GameState.PLAYING) return;
                     
-                    this.velocity = this.jumpStrength;
+                    const now = Date.now();
+                    if (now - state.lastClickTime < 300) return;
+                    state.lastClickTime = now;
+
+                    this.velocity = CONFIG.BIRD.JUMP_STRENGTH;
                     this.rotation = -20;
                     this.wingPosition = 0;
                     this.isJumping = true;
                     
-                    // 播放跳跃音效
-                    playSound(jumpSound, 0.5);
+                    playSound(audio.jumpSound, CONFIG.AUDIO.JUMP_VOLUME);
                     
                     setTimeout(() => {
                         this.isJumping = false;
                     }, 150);
-                },
-                
-                update() {
+                }
+
+                update(deltaTime) {
                     this.velocity += this.gravity;
-                    this.y += this.velocity;
+                    this.y += this.velocity * (deltaTime / 16); // 基于时间的运动
                     
                     if (this.isJumping) {
-                        this.wingPosition = (this.wingPosition + this.wingSpeed * 2) % 1;
+                        this.wingPosition = (this.wingPosition + 0.2) % 1;
                     } else {
-                        this.wingPosition = (this.wingPosition + this.wingSpeed) % 1;
+                        this.wingPosition = (this.wingPosition + 0.1) % 1;
                     }
                     
                     if (this.velocity < 0) {
-                        this.rotation = Math.max(this.rotation - 2, -this.maxRotation);
+                        this.rotation = Math.max(this.rotation - 2, -CONFIG.BIRD.MAX_ROTATION);
                     } else {
-                        this.rotation = Math.min(this.rotation + 1, this.maxRotation);
+                        this.rotation = Math.min(this.rotation + 1, CONFIG.BIRD.MAX_ROTATION);
                     }
                     
                     if (this.y < 0) {
                         this.y = 0;
                         this.velocity = 0;
                     }
-                },
-                
+                }
+
                 draw() {
                     ctx.save();
-                    
                     ctx.translate(this.x + this.width/2, this.y + this.height/2);
                     ctx.rotate(this.rotation * Math.PI / 180);
                     
-                    // 绘制小鸟身体
-                    ctx.fillStyle = this.color;
+                    // 身体
+                    ctx.fillStyle = '#E53E3E';
                     ctx.beginPath();
                     ctx.arc(0, 0, this.width/2, 0, Math.PI * 2);
                     ctx.fill();
                     
-                    // 绘制眼睛
+                    // 眼睛
                     ctx.fillStyle = 'white';
                     ctx.beginPath();
                     ctx.arc(this.width * 0.3, -5, 3.25, 0, Math.PI * 2);
@@ -247,7 +307,7 @@
                     ctx.arc(this.width * 0.35, -5, 1.3, 0, Math.PI * 2);
                     ctx.fill();
                     
-                    // 绘制嘴巴
+                    // 嘴巴
                     ctx.fillStyle = '#ED8936';
                     ctx.beginPath();
                     ctx.moveTo(this.width/2 - 2, 0);
@@ -256,11 +316,9 @@
                     ctx.closePath();
                     ctx.fill();
                     
-                    // 绘制翅膀
+                    // 翅膀
                     ctx.fillStyle = '#C53030';
-                    
                     const wingAngle = Math.sin(this.wingPosition * Math.PI * 2) * 9.75;
-                    
                     ctx.beginPath();
                     ctx.moveTo(-3.25, 0);
                     ctx.lineTo(3.25 + wingAngle/3, -6.5 - wingAngle);
@@ -270,206 +328,136 @@
                     
                     ctx.restore();
                 }
-            };
-            
-            // 管道参数
-            const treeWidth = 60;
-            const baseTreeGap = 150;
-            const baseTreeSpeed = 2.1;
-            const baseTreeDistance = 350;
-            
-            // 生成管道
-            function generateTree() {
-                const minHeight = canvas.height * 0.15;
-                const maxHeight = canvas.height * 0.6;
-                
-                const currentTreeGap = baseTreeGap / (1 + (difficultyLevel - 1) * 0.1);
-                
-                const topTreeHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
-                const bottomTreeY = topTreeHeight + currentTreeGap;
-                const bottomTreeHeight = canvas.height - bottomTreeY;
-                
-                const greenVariation = 85 + Math.floor(Math.random() * 40);
-                const treeColor = `rgb(72, ${greenVariation}, 120)`;
-                
-                trees.push({
-                    x: canvas.width,
-                    topHeight: topTreeHeight,
-                    bottomY: bottomTreeY,
-                    bottomHeight: bottomTreeHeight,
-                    width: treeWidth,
-                    passed: false,
-                    color: treeColor,
-                    shakeOffset: 0,
-                    shakeDirection: 1
-                });
             }
-            
-            // 更新管道位置
-            function updateTrees() {
-                const currentSpeed = baseTreeSpeed * (1 + (difficultyLevel - 1) * 0.15);
-                backgroundOffset = (backgroundOffset + currentSpeed * 0.3) % canvas.width;
-                
-                const currentTreeDistance = baseTreeDistance / (1 + (difficultyLevel - 1) * 0.1);
-                if (trees.length === 0 || trees[trees.length - 1].x < canvas.width - currentTreeDistance) {
-                    generateTree();
+
+            // 松树管理类
+            class TreeManager {
+                constructor() {
+                    this.trees = [];
                 }
-                
-                if (trees.length > 0 && trees[0].x + treeWidth < 0) {
-                    trees.shift();
-                }
-                
-                for (let i = 0; i < trees.length; i++) {
-                    trees[i].x -= currentSpeed;
+
+                generateTree() {
+                    const minHeight = canvas.height * CONFIG.TREE.MIN_HEIGHT_PERCENT;
+                    const maxHeight = canvas.height * CONFIG.TREE.MAX_HEIGHT_PERCENT;
                     
-                    if (Math.random() < 0.05) {
-                        trees[i].shakeDirection *= -1;
+                    const currentTreeGap = CONFIG.TREE.BASE_GAP / (1 + (state.difficultyLevel - 1) * 0.1);
+                    
+                    const topTreeHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+                    const bottomTreeY = topTreeHeight + currentTreeGap;
+                    const bottomTreeHeight = canvas.height - bottomTreeY;
+                    
+                    const greenVariation = 85 + Math.floor(Math.random() * 40);
+                    const treeColor = `rgb(72, ${greenVariation}, 120)`;
+                    
+                    this.trees.push({
+                        x: canvas.width,
+                        topHeight: topTreeHeight,
+                        bottomY: bottomTreeY,
+                        bottomHeight: bottomTreeHeight,
+                        width: CONFIG.TREE.WIDTH,
+                        passed: false,
+                        color: treeColor,
+                        shakeOffset: 0,
+                        shakeDirection: 1
+                    });
+                }
+
+                update(deltaTime) {
+                    const currentSpeed = CONFIG.TREE.BASE_SPEED * (1 + (state.difficultyLevel - 1) * CONFIG.DIFFICULTY.SPEED_MULTIPLIER);
+                    gameObjects.backgroundOffset = (gameObjects.backgroundOffset + currentSpeed * 0.3) % canvas.width;
+                    
+                    const currentTreeDistance = CONFIG.TREE.BASE_DISTANCE / (1 + (state.difficultyLevel - 1) * 0.1);
+                    if (this.trees.length === 0 || this.trees[this.trees.length - 1].x < canvas.width - currentTreeDistance) {
+                        this.generateTree();
                     }
-                    trees[i].shakeOffset += trees[i].shakeDirection * 0.2;
-                    trees[i].shakeOffset = Math.max(-2, Math.min(2, trees[i].shakeOffset));
                     
-                    if (!trees[i].passed && bird.x > trees[i].x + treeWidth) {
-                        trees[i].passed = true;
-                        score++;
-                        scoreDisplay.textContent = `分数: ${score}`;
+                    // 移除屏幕外的树
+                    this.trees = this.trees.filter(tree => tree.x + CONFIG.TREE.WIDTH > 0);
+                    
+                    // 更新每棵树的位置和状态
+                    this.trees.forEach(tree => {
+                        tree.x -= currentSpeed * (deltaTime / 16);
                         
-                        scorePopup = {
-                            x: trees[i].x + treeWidth,
-                            y: canvas.height / 2,
-                            value: "+1",
-                            opacity: 1,
-                            vy: -2
-                        };
+                        if (Math.random() < 0.05) {
+                            tree.shakeDirection *= -1;
+                        }
+                        tree.shakeOffset += tree.shakeDirection * 0.2;
+                        tree.shakeOffset = Math.max(-2, Math.min(2, tree.shakeOffset));
                         
-                        // 播放得分音效
-                        playSound(scoreSound, 0.6);
+                        if (!tree.passed && gameObjects.bird.x > tree.x + CONFIG.TREE.WIDTH) {
+                            tree.passed = true;
+                            state.score++;
+                            elements.scoreDisplay.textContent = `分数: ${state.score}`;
+                            
+                            gameObjects.scorePopup = {
+                                x: tree.x + CONFIG.TREE.WIDTH,
+                                y: canvas.height / 2,
+                                value: "+1",
+                                opacity: 1,
+                                vy: -2
+                            };
+                            
+                            playSound(audio.scoreSound, CONFIG.AUDIO.SCORE_VOLUME);
+                            updateDifficulty();
+                        }
+                    });
+                }
+
+                draw() {
+                    this.trees.forEach(tree => {
+                        ctx.save();
+                        ctx.translate(tree.shakeOffset, 0);
                         
-                        updateDifficulty();
-                    }
+                        // 上松树
+                        ctx.fillStyle = tree.color;
+                        ctx.fillRect(tree.x, 0, tree.width, tree.topHeight);
+                        
+                        // 松树叶
+                        ctx.fillStyle = '#2F855A';
+                        const topLeafHeight = 30;
+                        ctx.beginPath();
+                        ctx.moveTo(tree.x - 10, tree.topHeight);
+                        ctx.lineTo(tree.x + tree.width/2, tree.topHeight - topLeafHeight);
+                        ctx.lineTo(tree.x + tree.width + 10, tree.topHeight);
+                        ctx.closePath();
+                        ctx.fill();
+                        
+                        // 下松树
+                        ctx.fillStyle = tree.color;
+                        ctx.fillRect(tree.x, tree.bottomY, tree.width, tree.bottomHeight);
+                        
+                        // 下松树叶
+                        ctx.fillStyle = '#2F855A';
+                        ctx.beginPath();
+                        ctx.moveTo(tree.x - 10, tree.bottomY);
+                        ctx.lineTo(tree.x + tree.width/2, tree.bottomY + topLeafHeight);
+                        ctx.lineTo(tree.x + tree.width + 10, tree.bottomY);
+                        ctx.closePath();
+                        ctx.fill();
+                        
+                        ctx.restore();
+                    });
                 }
             }
-            
-            // 更新游戏难度
-            function updateDifficulty() {
-                const newLevel = Math.min(Math.floor(score / 10) + 1, MAX_DIFFICULTY);
-                
-                if (newLevel !== difficultyLevel) {
-                    const oldLevel = difficultyLevel;
-                    difficultyLevel = newLevel;
-                    
-                    difficultyIndicator.textContent = `难度: ${difficultyLevel}`;
-                    difficultyIndicator.classList.remove('opacity-0');
-                    
-                    scoreDisplay.textContent = `分数: ${score} (难度提升到 ${difficultyLevel}!)`;
-                    
-                    // 播放难度提升音效
-                    playSound(scoreSound, 0.6);
-                    
-                    setTimeout(() => {
-                        scoreDisplay.textContent = `分数: ${score}`;
-                        difficultyIndicator.classList.add('opacity-0');
-                    }, 2000);
-                }
-            }
-            
-            // 绘制管道
-            function drawTrees() {
-                for (let i = 0; i < trees.length; i++) {
-                    const tree = trees[i];
-                    
-                    ctx.save();
-                    ctx.translate(tree.shakeOffset, 0);
-                    
-                    // 绘制上松树
-                    ctx.fillStyle = tree.color;
-                    ctx.fillRect(tree.x, 0, tree.width, tree.topHeight);
-                    
-                    // 绘制松树叶
-                    ctx.fillStyle = '#2F855A';
-                    
-                    const topLeafHeight = 30;
-                    ctx.beginPath();
-                    ctx.moveTo(tree.x - 10, tree.topHeight);
-                    ctx.lineTo(tree.x + tree.width/2, tree.topHeight - topLeafHeight);
-                    ctx.lineTo(tree.x + tree.width + 10, tree.topHeight);
-                    ctx.closePath();
-                    ctx.fill();
-                    
-                    // 绘制下松树
-                    ctx.fillStyle = tree.color;
-                    ctx.fillRect(tree.x, tree.bottomY, tree.width, tree.bottomHeight);
-                    
-                    // 下松树叶
-                    ctx.fillStyle = '#2F855A';
-                    ctx.beginPath();
-                    ctx.moveTo(tree.x - 10, tree.bottomY);
-                    ctx.lineTo(tree.x + tree.width/2, tree.bottomY + topLeafHeight);
-                    ctx.lineTo(tree.x + tree.width + 10, tree.bottomY);
-                    ctx.closePath();
-                    ctx.fill();
-                    
-                    ctx.restore();
-                }
-            }
-            
-            // 碰撞检测
-            function checkCollision() {
-                // 检测底部碰撞
-                if (bird.y + bird.height > canvas.height) {
-                    // 播放落地碰撞音效
-                    playSound(collisionSound, 0.8);
-                    return true;
-                }
-                
-                // 检测松树碰撞
-                for (let i = 0; i < trees.length; i++) {
-                    const tree = trees[i];
-                    
-                    // 简化的碰撞检测
-                    if (bird.x + bird.width > tree.x && 
-                        bird.x < tree.x + tree.width && 
-                        (bird.y < tree.topHeight || bird.y + bird.height > tree.bottomY)) {
-                        // 播放管道碰撞音效
-                        playSound(hitPipeSound, 0.7);
-                        return true;
-                    }
-                }
-                
-                return false;
-            }
-            
-            // 绘制背景
+
+            // 背景绘制
             function drawBackground() {
-                if (skyImage.complete) {
-                    const scale = Math.max(canvas.width / skyImage.width, canvas.height / skyImage.height);
-                    
-                    ctx.drawImage(
-                        skyImage, 
-                        -backgroundOffset, 0, 
-                        skyImage.width * scale, skyImage.height * scale
-                    );
-                    
-                    ctx.drawImage(
-                        skyImage, 
-                        canvas.width - backgroundOffset, 0, 
-                        skyImage.width * scale, skyImage.height * scale
-                    );
-                } else {
-                    ctx.fillStyle = '#4299E1';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                }
+                // 渐变背景
+                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                gradient.addColorStop(0, '#4299E1');
+                gradient.addColorStop(1, '#3182CE');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
                 
-                // 绘制云朵
+                // 云朵
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-                
-                const cloudSpeed = 0.5;
-                const dynamicClouds = [
-                    { x: (canvas.width * 0.2 - backgroundOffset * 0.1) % (canvas.width + 100) - 50, y: canvas.height * 0.1 },
-                    { x: (canvas.width * 0.5 - backgroundOffset * 0.15) % (canvas.width + 100) - 50, y: canvas.height * 0.15 },
-                    { x: (canvas.width * 0.8 - backgroundOffset * 0.2) % (canvas.width + 100) - 50, y: canvas.height * 0.08 }
+                const clouds = [
+                    { x: (canvas.width * 0.2 - gameObjects.backgroundOffset * 0.1) % (canvas.width + 100) - 50, y: canvas.height * 0.1 },
+                    { x: (canvas.width * 0.5 - gameObjects.backgroundOffset * 0.15) % (canvas.width + 100) - 50, y: canvas.height * 0.15 },
+                    { x: (canvas.width * 0.8 - gameObjects.backgroundOffset * 0.2) % (canvas.width + 100) - 50, y: canvas.height * 0.08 }
                 ];
                 
-                dynamicClouds.forEach(cloud => {
+                clouds.forEach(cloud => {
                     ctx.beginPath();
                     ctx.arc(cloud.x, cloud.y, 20, 0, Math.PI * 2);
                     ctx.arc(cloud.x + 30, cloud.y - 10, 25, 0, Math.PI * 2);
@@ -478,25 +466,25 @@
                     ctx.fill();
                 });
             }
-            
-            // 绘制得分弹出动画
+
+            // 得分弹出效果
             function drawScorePopup() {
-                if (scorePopup) {
-                    ctx.fillStyle = `rgba(255, 255, 255, ${scorePopup.opacity})`;
+                if (gameObjects.scorePopup) {
+                    ctx.fillStyle = `rgba(255, 255, 255, ${gameObjects.scorePopup.opacity})`;
                     ctx.font = 'bold 20px Arial';
                     ctx.textAlign = 'center';
-                    ctx.fillText(scorePopup.value, scorePopup.x, scorePopup.y);
+                    ctx.fillText(gameObjects.scorePopup.value, gameObjects.scorePopup.x, gameObjects.scorePopup.y);
                     
-                    scorePopup.y += scorePopup.vy;
-                    scorePopup.opacity -= 0.02;
+                    gameObjects.scorePopup.y += gameObjects.scorePopup.vy;
+                    gameObjects.scorePopup.opacity -= 0.02;
                     
-                    if (scorePopup.opacity <= 0) {
-                        scorePopup = null;
+                    if (gameObjects.scorePopup.opacity <= 0) {
+                        gameObjects.scorePopup = null;
                     }
                 }
             }
-            
-            // 绘制游戏结束画面
+
+            // 游戏结束画面
             function drawGameOverScreen() {
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -507,196 +495,219 @@
                 ctx.fillText('游戏结束', canvas.width / 2, canvas.height / 2 - 40);
                 
                 ctx.font = '24px Arial';
-                ctx.fillText(`你的分数: ${score}`, canvas.width / 2, canvas.height / 2 + 10);
+                ctx.fillText(`你的分数: ${state.score}`, canvas.width / 2, canvas.height / 2 + 10);
                 
                 ctx.font = '18px Arial';
-                ctx.fillText(`最高难度: ${difficultyLevel}`, canvas.width / 2, canvas.height / 2 + 45);
+                ctx.fillText(`最高难度: ${state.difficultyLevel}`, canvas.width / 2, canvas.height / 2 + 45);
                 
                 ctx.font = 'bold 20px Arial';
                 ctx.fillText('点击开始游戏', canvas.width / 2, canvas.height / 2 + 100);
             }
-            
-            // 游戏开始动画
-            function gameStartAnimation() {
-                const startOpacity = 1;
-                let opacity = startOpacity;
-                
-                function animate() {
-                    opacity -= 0.02;
-                    if (opacity <= 0) {
-                        return;
-                    }
-                    
-                    ctx.fillStyle = `rgba(0, 0, 0, ${opacity})`;
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    
-                    animationId = requestAnimationFrame(animate);
+
+            // 碰撞检测
+            function checkCollision() {
+                // 检测底部碰撞
+                if (gameObjects.bird.y + gameObjects.bird.height > canvas.height) {
+                    playSound(audio.collisionSound, CONFIG.AUDIO.COLLISION_VOLUME);
+                    return true;
                 }
                 
-                animate();
+                // 检测松树碰撞
+                for (let i = 0; i < gameObjects.trees.length; i++) {
+                    const tree = gameObjects.trees[i];
+                    
+                    if (gameObjects.bird.x + gameObjects.bird.width > tree.x && 
+                        gameObjects.bird.x < tree.x + tree.width && 
+                        (gameObjects.bird.y < tree.topHeight || gameObjects.bird.y + gameObjects.bird.height > tree.bottomY)) {
+                        playSound(audio.hitPipeSound, CONFIG.AUDIO.HIT_VOLUME);
+                        return true;
+                    }
+                }
+                
+                return false;
             }
-            
+
+            // 更新难度
+            function updateDifficulty() {
+                const newLevel = Math.min(Math.floor(state.score / CONFIG.DIFFICULTY.SCORE_PER_LEVEL) + 1, CONFIG.DIFFICULTY.MAX_LEVEL);
+                
+                if (newLevel !== state.difficultyLevel) {
+                    state.difficultyLevel = newLevel;
+                    
+                    elements.difficultyIndicator.textContent = `难度: ${state.difficultyLevel}`;
+                    elements.difficultyIndicator.classList.remove('opacity-0');
+                    
+                    elements.scoreDisplay.textContent = `分数: ${state.score} (难度提升到 ${state.difficultyLevel}!)`;
+                    
+                    playSound(audio.scoreSound, CONFIG.AUDIO.SCORE_VOLUME);
+                    
+                    setTimeout(() => {
+                        elements.scoreDisplay.textContent = `分数: ${state.score}`;
+                        elements.difficultyIndicator.classList.add('opacity-0');
+                    }, 2000);
+                }
+            }
+
             // 游戏主循环
-            function gameLoop() {
+            function gameLoop(timestamp) {
+                const deltaTime = timestamp - state.lastTime;
+                state.lastTime = timestamp;
+                
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 
                 drawBackground();
                 
-                if (!gameOver && gameStarted) {
-                    bird.update();
-                    updateTrees();
+                if (state.current === GameState.PLAYING) {
+                    gameObjects.bird.update(deltaTime);
+                    gameObjects.trees.update(deltaTime);
                     
                     if (checkCollision()) {
-                        gameOver = true;
-                        cancelAnimationFrame(animationId);
-                        
-                        // 游戏结束时暂停背景音
-                        bgMusic.pause();
-                        
-                        gameTitle.classList.remove('opacity-0', 'scale-95');
-                        gameHint.classList.remove('opacity-0');
-                        gameContainer.classList.remove('game-container-playing');
-                        gameContainer.classList.add('game-container-start');
-                        
-                        startScreen.classList.remove('hidden');
-                        startScreen.classList.add('opacity-100');
-                        
+                        endGame();
                         return;
                     }
                 }
                 
-                drawTrees();
-                bird.draw();
+                gameObjects.trees.draw();
+                gameObjects.bird.draw();
                 drawScorePopup();
                 
-                if (gameOver) {
+                if (state.current === GameState.GAME_OVER) {
                     drawGameOverScreen();
                 }
                 
-                if (!gameOver) {
-                    animationId = requestAnimationFrame(gameLoop);
-                }
+                state.animationId = requestAnimationFrame(gameLoop);
             }
-            
+
             // 开始游戏
             function startGame() {
-                gameStarted = true;
-                gameOver = false;
-                score = 0;
-                difficultyLevel = 1;
-                scoreDisplay.textContent = `分数: ${score}`;
-                difficultyIndicator.textContent = `难度: ${difficultyLevel}`;
-                trees.length = 0;
-                bird.y = canvas.height / 2;
-                bird.velocity = 0;
-                backgroundOffset = 0;
+                state.current = GameState.PLAYING;
+                state.score = 0;
+                state.difficultyLevel = 1;
+                elements.scoreDisplay.textContent = `分数: ${state.score}`;
+                elements.difficultyIndicator.textContent = `难度: ${state.difficultyLevel}`;
                 
-                startScreen.classList.add('opacity-0');
-                setTimeout(() => {
-                    startScreen.classList.add('hidden');
-                }, 500);
+                // 重置游戏对象
+                gameObjects.bird = new Bird();
+                gameObjects.trees = new TreeManager();
+                gameObjects.backgroundOffset = 0;
+                gameObjects.scorePopup = null;
                 
-                gameTitle.classList.add('opacity-0', 'scale-95');
-                gameHint.classList.add('opacity-0');
+                // 更新UI
+                elements.startScreen.classList.add('opacity-0', 'hidden');
+                elements.gameTitle.classList.add('opacity-0', 'scale-95');
+                elements.gameHint.classList.add('opacity-0');
+                elements.gameContainer.classList.remove('game-container-start');
+                elements.gameContainer.classList.add('game-container-playing');
                 
-                gameContainer.classList.remove('game-container-start');
-                gameContainer.classList.add('game-container-playing');
+                // 取消之前的动画帧
+                if (state.animationId) {
+                    cancelAnimationFrame(state.animationId);
+                }
                 
-                gameLoop();
-                gameStartAnimation();
+                // 开始游戏循环
+                state.lastTime = performance.now();
+                gameLoop(state.lastTime);
                 
-                // 开始游戏时播放背景音
-                if (soundEnabled && !bgMusicStarted) {
+                // 播放背景音乐
+                if (state.soundEnabled && !state.bgMusicStarted) {
                     startBackgroundMusic();
                 }
             }
-            
-            // 播放音效函数（带播放限制处理）
-            function playSound(audio, volume = 1) {
-                if (!soundEnabled) return;
+
+            // 结束游戏
+            function endGame() {
+                state.current = GameState.GAME_OVER;
+                cancelAnimationFrame(state.animationId);
                 
-                // 处理自动播放限制
-                if (audio.paused) {
-                    audio.volume = volume;
-                    audio.currentTime = 0;
-                    audio.play().catch(err => {
-                        console.log("播放音效失败:", err);
-                        // 尝试通过用户交互触发
-                        document.addEventListener('click', function initSound() {
-                            audio.play().catch(e => console.log("仍无法播放:", e));
-                            document.removeEventListener('click', initSound);
-                        }, { once: true });
-                    });
+                // 保存最高分
+                if (state.score > state.highScore) {
+                    state.highScore = state.score;
+                    localStorage.setItem('flappyHighScore', state.highScore);
+                }
+                
+                // 暂停背景音乐
+                audio.bgMusic.pause();
+                
+                // 更新UI
+                elements.gameTitle.classList.remove('opacity-0', 'scale-95');
+                elements.gameHint.classList.remove('opacity-0');
+                elements.gameContainer.classList.remove('game-container-playing');
+                elements.gameContainer.classList.add('game-container-start');
+            }
+
+            // 音频控制
+            function playSound(audioElement, volume = 1) {
+                if (!state.soundEnabled) return;
+                
+                if (audioElement.paused) {
+                    audioElement.volume = volume;
+                    audioElement.currentTime = 0;
+                    audioElement.play().catch(console.error);
                 }
             }
-            
-            // 启动背景音（处理自动播放策略）
+
             function startBackgroundMusic() {
-                if (!soundEnabled) return;
+                if (!state.soundEnabled) return;
                 
-                bgMusic.volume = 0.3;
-                bgMusic.play().catch(err => {
+                audio.bgMusic.volume = CONFIG.AUDIO.BG_VOLUME;
+                audio.bgMusic.play().catch(err => {
                     console.log("背景音自动播放失败:", err);
-                    bgMusicStarted = false;
+                    state.bgMusicStarted = false;
                     
-                    // 设置用户交互触发
                     document.addEventListener('click', function enableBgMusic() {
-                        if (soundEnabled && !bgMusicStarted) {
-                            bgMusic.play().catch(e => console.log("仍无法播放背景音:", e));
-                            bgMusicStarted = true;
+                        if (state.soundEnabled && !state.bgMusicStarted) {
+                            audio.bgMusic.play().catch(console.error);
+                            state.bgMusicStarted = true;
                         }
                         document.removeEventListener('click', enableBgMusic);
                     }, { once: true });
                 }).then(() => {
-                    bgMusicStarted = true;
+                    state.bgMusicStarted = true;
                 });
             }
-            
-            // 切换音效开关
+
             function toggleSound() {
-                soundEnabled = !soundEnabled;
+                state.soundEnabled = !state.soundEnabled;
                 
-                if (soundEnabled) {
-                    soundControl.innerHTML = '<i class="fa fa-volume-up"></i>';
-                    if (gameStarted && !gameOver) {
-                        if (!bgMusicStarted) {
+                if (state.soundEnabled) {
+                    elements.soundControl.innerHTML = '<i class="fa fa-volume-up"></i>';
+                    if (state.current === GameState.PLAYING) {
+                        if (!state.bgMusicStarted) {
                             startBackgroundMusic();
                         } else {
-                            bgMusic.play();
+                            audio.bgMusic.play();
                         }
                     }
                 } else {
-                    soundControl.innerHTML = '<i class="fa fa-volume-off"></i>';
-                    bgMusic.pause();
+                    elements.soundControl.innerHTML = '<i class="fa fa-volume-off"></i>';
+                    audio.bgMusic.pause();
                 }
             }
-            
-            // 显示触摸反馈动画
+
+            // 触摸反馈
             function showTouchFeedback(x, y) {
-                touchFeedback.style.left = `${x}px`;
-                touchFeedback.style.top = `${y}px`;
-                touchFeedback.style.width = '60px';
-                touchFeedback.style.height = '60px';
-                touchFeedback.style.opacity = '0.7';
-                touchFeedback.classList.remove('hidden');
+                elements.touchFeedback.style.left = `${x}px`;
+                elements.touchFeedback.style.top = `${y}px`;
+                elements.touchFeedback.style.width = '60px';
+                elements.touchFeedback.style.height = '60px';
+                elements.touchFeedback.style.opacity = '0.7';
+                elements.touchFeedback.classList.remove('hidden');
                 
-                // 动画效果
                 setTimeout(() => {
-                    touchFeedback.style.width = '100px';
-                    touchFeedback.style.height = '100px';
-                    touchFeedback.style.opacity = '0';
+                    elements.touchFeedback.style.width = '100px';
+                    elements.touchFeedback.style.height = '100px';
+                    elements.touchFeedback.style.opacity = '0';
                     
                     setTimeout(() => {
-                        touchFeedback.classList.add('hidden');
+                        elements.touchFeedback.classList.add('hidden');
                     }, 300);
                 }, 10);
             }
-            
-            // 关键修复：统一事件处理逻辑
+
+            // 事件处理
             function handleCanvasInteraction(e) {
                 e.preventDefault();
                 
-                // 获取事件位置（兼容鼠标和触摸）
                 const rect = canvas.getBoundingClientRect();
                 let clientX, clientY;
                 
@@ -708,59 +719,59 @@
                     clientY = e.clientY;
                 }
                 
-                // 显示触摸反馈
                 showTouchFeedback(clientX, clientY);
                 
-                // 根据游戏状态决定操作
-                if (!gameStarted || gameOver) {
-                    startGame(); // 游戏未开始或已结束时，点击开始/重新开始
+                if (state.current !== GameState.PLAYING) {
+                    startGame();
                 } else {
-                    bird.jump(); // 游戏进行中，点击触发跳跃
+                    gameObjects.bird.jump();
                 }
             }
-            
+
             // 初始化游戏
             function initGame() {
-                // 绑定鼠标和触摸事件到Canvas
+                resizeCanvas();
+                window.addEventListener('resize', resizeCanvas);
+                
+                // 事件监听
                 canvas.addEventListener('click', handleCanvasInteraction, { capture: true });
                 canvas.addEventListener('touchstart', (e) => {
                     handleCanvasInteraction(e);
                     e.preventDefault();
                 }, { passive: false });
                 
-                // 绑定事件到整个游戏容器（修复点击问题）
-                gameContainer.addEventListener('click', (e) => {
-                    // 确保点击的不是声音控制按钮
-                    if (!soundControl.contains(e.target)) {
+                elements.gameContainer.addEventListener('click', (e) => {
+                    if (!elements.soundControl.contains(e.target)) {
                         handleCanvasInteraction(e);
                     }
                 });
                 
-                // 键盘事件
                 document.addEventListener('keydown', (e) => {
                     if (e.code === 'Space') {
                         e.preventDefault();
                         handleCanvasInteraction({
                             clientX: canvas.getBoundingClientRect().left + canvas.width/2,
                             clientY: canvas.getBoundingClientRect().top + canvas.height/2,
-                            preventDefault: () => {} // 模拟事件对象的preventDefault方法
+                            preventDefault: () => {}
                         });
                     }
                 });
                 
-                // 声音控制按钮
-                soundControl.addEventListener('click', toggleSound);
+                elements.soundControl.addEventListener('click', toggleSound);
+                elements.startButton.addEventListener('click', startGame);
+                elements.jumpBtn.addEventListener('click', () => gameObjects.bird?.jump());
                 
-                // 开始按钮点击事件
-                startButton.addEventListener('click', startGame);
+                // 处理页面卸载
+                window.addEventListener('beforeunload', () => {
+                    cancelAnimationFrame(state.animationId);
+                    audio.bgMusic.pause();
+                });
                 
-                // 确保图片加载完成
-                skyImage.onload = function() {
-                    // 图片加载完成后可以开始游戏
-                };
+                // 初始化游戏对象
+                gameObjects.bird = new Bird();
+                gameObjects.trees = new TreeManager();
             }
-            
-            // 初始化游戏
+
             initGame();
         });
     </script>
